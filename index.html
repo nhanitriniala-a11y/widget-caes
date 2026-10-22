@@ -101,6 +101,11 @@
   .seg button.on.c { background:var(--rose-400); color:var(--rose-700); }
   .seg button:disabled { opacity:.55; cursor:progress; }
   .empty { padding:34px; text-align:center; color:var(--muted); }
+  .diag { margin-top:30px; color:var(--muted); font-size:13px; }
+  .diag summary { cursor:pointer; }
+  .diag h3 { margin:14px 0 0; font-size:14px; color:var(--sky-900); }
+  .diag table { margin-top:8px; border-collapse:collapse; }
+  .diag td, .diag th { padding:4px 14px 4px 0; text-align:left; }
   mark { background:#fff3b0; border-radius:3px; }
   .toast { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); background:var(--sky-900); color:#fff; padding:9px 18px; border-radius:999px;
            opacity:0; transition:opacity .2s; pointer-events:none; z-index:10; }
@@ -125,6 +130,7 @@
   <h2 class="sec">Types de saisine</h2>
   <section class="modules" id="modules" aria-label="Modules"></section>
   <div id="panel"></div>
+  <details class="diag" id="diag"></details>
 </main>
 <div class="toast" id="toast" role="status"></div>
 
@@ -169,11 +175,15 @@
     if (Array.isArray(v)) v = v.filter(function (x) { return x !== 'L'; }).join(', ');
     return v == null ? '' : String(v);
   }
+  // Règle de lecture de la colonne Commentaire :
+  //   contient « clôturé »            -> Clôturé
+  //   « non réglé » ou vide / autre   -> À traiter
+  //   contient « réglé » ou « traité » -> Traité
   function statutOf(v) {
     var n = norm(v);
     if (n.indexOf('clotur') !== -1) return 'c';
-    if (n.indexOf('non') === 0) return 'a';
-    if (n.indexOf('regl') === 0 || n.indexOf('traite') === 0) return 't';
+    if (n.indexOf('non regl') !== -1 || n.indexOf('non traite') !== -1) return 'a';
+    if (n.indexOf('regl') !== -1 || n.indexOf('traite') !== -1) return 't';
     return 'a';
   }
   function typeOf(v) {
@@ -211,12 +221,30 @@
   }
 
   /* ---------- Données ---------- */
+  var loadToken = 0;
+  function build(id, st, ty, lib, det) {
+    return { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), libelle:txt(lib), detail:txt(det) };
+  }
+
+  // On lit la table complète : les filtres de la vue Grist ne cachent plus aucune ligne.
   grist.onRecords(function (recs, map) {
     mapping = map;
-    rows = !map ? [] : recs.map(function (r) {
-      return { id:r.id, statut:statutOf(r.Statut), type:typeOf(r.Type), libelle:txt(r.Libelle), detail:txt(r.Detail) };
+    if (!map) { rows = []; render(); return; }
+    var token = ++loadToken;
+    grist.selectedTable.getTableId().then(function (tid) {
+      return grist.docApi.fetchTable(tid);
+    }).then(function (t) {
+      if (token !== loadToken) return;
+      rows = t.id.map(function (id, i) {
+        return build(id, t[map.Statut][i], t[map.Type][i],
+          map.Libelle ? t[map.Libelle][i] : '', map.Detail ? t[map.Detail][i] : '');
+      });
+      render();
+    }).catch(function () {
+      if (token !== loadToken) return;
+      rows = recs.map(function (r) { return build(r.id, r.Statut, r.Type, r.Libelle, r.Detail); });
+      render();
     });
-    render();
   });
 
   function setStatut(id, key, btns) {
@@ -255,6 +283,7 @@
     renderStats();
     renderModules();
     renderPanel();
+    renderDiag();
   }
 
   function renderStatsActive() {
@@ -326,6 +355,39 @@
       });
       m.appendChild(b);
     });
+  }
+
+  function diagTable(d, title, rawKey, labelFn) {
+    d.appendChild(h('h3', null, title));
+    var seen = {};
+    rows.forEach(function (r) {
+      var k = r[rawKey] === '' ? '(vide)' : r[rawKey];
+      if (!seen[k]) seen[k] = { n:0, lab:labelFn(r) };
+      seen[k].n++;
+    });
+    var tb = h('table');
+    var th = h('tr');
+    ['Valeur lue dans Grist', 'Lignes', 'Compté comme'].forEach(function (x) { th.appendChild(h('th', null, x)); });
+    tb.appendChild(th);
+    Object.keys(seen).sort().slice(0, 40).forEach(function (k) {
+      var tr = h('tr');
+      tr.appendChild(h('td', null, k));
+      tr.appendChild(h('td', null, String(seen[k].n)));
+      tr.appendChild(h('td', null, seen[k].lab));
+      tb.appendChild(tr);
+    });
+    d.appendChild(tb);
+  }
+
+  function renderDiag() {
+    var d = document.getElementById('diag');
+    d.innerHTML = '';
+    if (!rows.length) return;
+    d.appendChild(h('summary', null, 'Contrôle : comment les colonnes sont lues'));
+    d.appendChild(h('p', null, 'Colonnes associées : Statut = ' + mapping.Statut + ' · Type = ' + mapping.Type +
+      ' · première valeur de statut lue : ' + rows[0].rawKind));
+    diagTable(d, 'Colonne Statut', 'raw', function (r) { return statutLabel(r.statut); });
+    diagTable(d, 'Colonne Type de saisine', 'rawType', function (r) { return moduleLabel(r.type); });
   }
 
   function scrollToPanel() {
