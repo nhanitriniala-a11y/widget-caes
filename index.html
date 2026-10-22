@@ -89,7 +89,16 @@
   .chip.t.active { background:var(--mint-400); border-color:var(--mint-400); color:var(--mint-700); }
   .chip.c.active { background:var(--rose-400); border-color:var(--rose-400); color:var(--rose-700); }
   .row { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; justify-content:space-between; padding:14px 4px; border-top:1px solid var(--line); }
-  .who { font-weight:700; }
+  .cand { padding:16px 4px 18px; border-top:1px solid var(--line); }
+  .cand-top { display:flex; flex-wrap:wrap; gap:10px 18px; align-items:center; justify-content:space-between; }
+  .fields { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:10px 16px; margin:14px 0 0; padding:14px 16px; background:var(--sky-50); border-radius:14px; }
+  .fld { min-width:0; }
+  .fld.wide { grid-column:span 2; }
+  @media (max-width:560px) { .fld.wide { grid-column:auto; } }
+  .fld dt { font-size:12px; font-weight:700; color:var(--sky-800); }
+  .fld dd { margin:1px 0 0; overflow-wrap:anywhere; white-space:pre-wrap; }
+  .fld dd.none { color:var(--muted); }
+  .who { font-weight:700; font-size:16px; }
   .sub { color:var(--muted); font-size:13px; }
   .tag { display:inline-block; margin-left:8px; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:700; vertical-align:middle; }
   .tag.a { background:var(--sky-100); color:var(--sky-900); } .tag.t { background:var(--mint-100); color:var(--mint-700); } .tag.c { background:var(--rose-100); color:var(--rose-700); }
@@ -156,15 +165,27 @@
   var sortMode = 'recent';
   var query = '';
 
-  grist.ready({
-    requiredAccess: 'full',
-    columns: [
-      { name:'Statut',  title:'Statut (Commentaire : Réglé / non réglé / clôturé)', type:'Any' },
-      { name:'Type',    title:'Type de saisine', type:'Any' },
-      { name:'Libelle', title:'Nom ou intitulé du dossier', type:'Any', optional:true },
-      { name:'Detail',  title:'Détail affiché sous le nom (facultatif)', type:'Any', optional:true }
-    ]
-  });
+  // Champs affichés pour chaque candidat (dans cet ordre)
+  var FIELDS = [
+    { name:'Bac',           title:'Bac' },
+    { name:'Academie',      title:'Académie d\'origine' },
+    { name:'Justificatifs', title:'Justificatifs reçus' },
+    { name:'AvisMedecin',   title:'Avis médecin',                       wide:true },
+    { name:'Formation',     title:'Formation demandée par le candidat', wide:true },
+    { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true },
+    { name:'Situation',     title:'Situation finale',                   wide:true }
+  ];
+  var IDENT = ['Numero', 'Nom', 'Prenom'];
+
+  var COLS = [
+    { name:'Statut', title:'Statut (Commentaire : Réglé / non réglé / clôturé)', type:'Any' },
+    { name:'Type',   title:'Type de saisine', type:'Any' },
+    { name:'Numero', title:'Numéro de dossier', type:'Any', optional:true },
+    { name:'Nom',    title:'Nom du candidat', type:'Any', optional:true },
+    { name:'Prenom', title:'Prénom du candidat', type:'Any', optional:true }
+  ];
+  FIELDS.forEach(function (f) { COLS.push({ name:f.name, title:f.title, type:'Any', optional:true }); });
+  grist.ready({ requiredAccess:'full', columns:COLS });
 
   /* ---------- Utilitaires ---------- */
   function norm(v) {
@@ -173,6 +194,10 @@
   }
   function txt(v) {
     if (Array.isArray(v)) v = v.filter(function (x) { return x !== 'L'; }).join(', ');
+    if (typeof v === 'number' && v > 946684800 && v < 4102444800 && v % 86400 === 0) {
+      var d = new Date(v * 1000);   // colonne Date de Grist
+      return ('0' + d.getUTCDate()).slice(-2) + '/' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '/' + d.getUTCFullYear();
+    }
     return v == null ? '' : String(v);
   }
   // Règle de lecture de la colonne Commentaire :
@@ -222,9 +247,16 @@
 
   /* ---------- Données ---------- */
   var loadToken = 0;
-  function build(id, st, ty, lib, det) {
-    return { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), libelle:txt(lib), detail:txt(det) };
+  var ALL = ['Numero', 'Nom', 'Prenom'].concat(FIELDS.map(function (f) { return f.name; }));
+
+  function build(id, get) {
+    var st = get('Statut'), ty = get('Type');
+    var r = { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), f:{} };
+    ALL.forEach(function (k) { r.f[k] = txt(get(k)); });
+    return r;
   }
+  function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
+  function candTitle(r) { return fullName(r) || ('Dossier n° ' + (r.f.Numero || r.id)); }
 
   // On lit la table complète : les filtres de la vue Grist ne cachent plus aucune ligne.
   grist.onRecords(function (recs, map) {
@@ -236,13 +268,12 @@
     }).then(function (t) {
       if (token !== loadToken) return;
       rows = t.id.map(function (id, i) {
-        return build(id, t[map.Statut][i], t[map.Type][i],
-          map.Libelle ? t[map.Libelle][i] : '', map.Detail ? t[map.Detail][i] : '');
+        return build(id, function (k) { return map[k] && t[map[k]] ? t[map[k]][i] : ''; });
       });
       render();
     }).catch(function () {
       if (token !== loadToken) return;
-      rows = recs.map(function (r) { return build(r.id, r.Statut, r.Type, r.Libelle, r.Detail); });
+      rows = recs.map(function (r) { return build(r.id, function (k) { return r[k]; }); });
       render();
     });
   });
@@ -410,13 +441,15 @@
       if (view.type && r.type !== view.type) return false;
       if (view.statut && r.statut !== view.statut) return false;
       if (q) {
-        var hay = norm([r.libelle, r.detail, moduleLabel(r.type), 'dossier ' + r.id].join(' '));
+        var hay = norm([moduleLabel(r.type), 'dossier ' + r.id].concat(ALL.map(function (k) { return r.f[k]; })).join(' '));
         if (hay.indexOf(q) === -1) return false;
       }
       return true;
     });
     if (sortMode === 'az') {
-      list.sort(function (a, b) { return (a.libelle || 'zzz' + a.id).localeCompare(b.libelle || 'zzz' + b.id, 'fr'); });
+      list.sort(function (a, b) { return (fullName(a) || 'zzz' + a.id).localeCompare(fullName(b) || 'zzz' + b.id, 'fr'); });
+    } else if (sortMode === 'num') {
+      list.sort(function (a, b) { return (a.f.Numero || '').localeCompare(b.f.Numero || '', 'fr', { numeric:true }); });
     } else if (sortMode === 'statut') {
       var o = { a:0, t:1, c:2 };
       list.sort(function (a, b) { return o[a.statut] - o[b.statut] || b.id - a.id; });
@@ -440,7 +473,7 @@
     var tools = h('div', 'tools');
     var sel = h('select');
     sel.setAttribute('aria-label', 'Trier');
-    [['recent','Plus récents d\'abord'],['az','Nom A → Z'],['statut','Par statut']].forEach(function (o) {
+    [['recent','Plus récents d\'abord'],['az','Nom A → Z'],['num','N° de dossier'],['statut','Par statut']].forEach(function (o) {
       var op = h('option', null, o[1]); op.value = o[0]; if (sortMode === o[0]) op.selected = true; sel.appendChild(op);
     });
     sel.addEventListener('change', function () { sortMode = sel.value; renderPanel(); });
@@ -474,17 +507,19 @@
     }
 
     list.forEach(function (r) {
-      var row = h('div', 'row');
+      var card = h('article', 'cand');
+
+      var top = h('div', 'cand-top');
       var who = h('div');
       var name = h('div', 'who');
-      highlight(name, r.libelle || ('Dossier n° ' + r.id));
+      highlight(name, candTitle(r));
       name.appendChild(h('span', 'tag ' + r.statut, statutLabel(r.statut)));
       who.appendChild(name);
       var sub = h('div', 'sub');
+      if (r.f.Numero) { sub.appendChild(document.createTextNode('N° ')); highlight(sub, r.f.Numero); sub.appendChild(document.createTextNode(' · ')); }
       sub.appendChild(document.createTextNode(moduleLabel(r.type)));
-      if (r.detail) { sub.appendChild(document.createTextNode(' · ')); highlight(sub, r.detail); }
       who.appendChild(sub);
-      row.appendChild(who);
+      top.appendChild(who);
 
       var seg = h('div', 'seg');
       var btns = [];
@@ -494,8 +529,21 @@
         if (r.statut !== s.key) b.addEventListener('click', function () { setStatut(r.id, s.key, btns); });
         btns.push(b); seg.appendChild(b);
       });
-      row.appendChild(seg);
-      panel.appendChild(row);
+      top.appendChild(seg);
+      card.appendChild(top);
+
+      var grid = h('dl', 'fields');
+      FIELDS.forEach(function (f) {
+        if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
+        var box = h('div', 'fld' + (f.wide ? ' wide' : ''));
+        box.appendChild(h('dt', null, f.title));
+        var dd = h('dd');
+        if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
+        box.appendChild(dd);
+        grid.appendChild(box);
+      });
+      if (grid.childNodes.length) card.appendChild(grid);
+      panel.appendChild(card);
     });
 
     host.appendChild(panel);
