@@ -109,6 +109,13 @@
   .seg button.on.t { background:var(--mint-400); color:var(--mint-700); }
   .seg button.on.c { background:var(--rose-400); color:var(--rose-700); }
   .seg button:disabled { opacity:.55; cursor:progress; }
+  .actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .justif { display:inline-flex; align-items:center; gap:8px; border:1px solid var(--line); background:var(--sky-50); border-radius:12px; padding:7px 13px; font-weight:600; color:var(--muted); }
+  .justif:hover:not(:disabled) { background:var(--sky-100); }
+  .justif .box { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px; border:2px solid var(--sky-500); border-radius:5px; background:var(--white); font-size:13px; line-height:1; color:#fff; }
+  .justif.on { background:var(--mint-100); border-color:var(--mint-400); color:var(--mint-700); }
+  .justif.on .box { background:var(--mint-700); border-color:var(--mint-700); }
+  .justif:disabled { opacity:.55; cursor:progress; }
   .empty { padding:34px; text-align:center; color:var(--muted); }
   .diag { margin-top:30px; color:var(--muted); font-size:13px; }
   .diag summary { cursor:pointer; }
@@ -186,6 +193,14 @@
   ];
   FIELDS.forEach(function (f) { COLS.push({ name:f.name, title:f.title, type:'Any', optional:true }); });
   grist.ready({ requiredAccess:'full', columns:COLS });
+
+  // Cases « Justificatif » : mémorisées dans les réglages du widget (pas dans le tableau)
+  var justifs = {};
+  grist.onOptions(function (opts) {
+    justifs = (opts && opts.justifs) || {};
+    render();
+  });
+  function isJustif(id) { return !!justifs[id]; }
 
   /* ---------- Utilitaires ---------- */
   function norm(v) {
@@ -286,6 +301,21 @@
       toast('Dossier mis à jour : ' + statutLabel(key));
     }).catch(function (e) {
       btns.forEach(function (b) { b.disabled = false; });
+      toast('Échec de la mise à jour : ' + e.message);
+    });
+  }
+
+  function setJustif(id, value, btn) {
+    var next = {};
+    Object.keys(justifs).forEach(function (k) { next[k] = justifs[k]; });
+    if (value) next[id] = true; else delete next[id];
+    btn.disabled = true;
+    Promise.resolve(grist.setOption('justifs', next)).then(function () {
+      justifs = next;
+      toast(value ? 'Justificatif coché' : 'Justificatif décoché');
+      renderPanel();
+    }).catch(function (e) {
+      btn.disabled = false;
       toast('Échec de la mise à jour : ' + e.message);
     });
   }
@@ -529,7 +559,17 @@
         if (r.statut !== s.key) b.addEventListener('click', function () { setStatut(r.id, s.key, btns); });
         btns.push(b); seg.appendChild(b);
       });
-      top.appendChild(seg);
+      var actions = h('div', 'actions');
+      actions.appendChild(seg);
+      var ok = isJustif(r.id);
+      var jb = h('button', 'justif' + (ok ? ' on' : ''));
+      jb.setAttribute('role', 'checkbox');
+      jb.setAttribute('aria-checked', ok ? 'true' : 'false');
+      jb.appendChild(h('span', 'box', ok ? '✓' : ''));
+      jb.appendChild(document.createTextNode('Justificatif'));
+      jb.addEventListener('click', function () { setJustif(r.id, !ok, jb); });
+      actions.appendChild(jb);
+      top.appendChild(actions);
       card.appendChild(top);
 
       var grid = h('dl', 'fields');
