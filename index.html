@@ -210,6 +210,10 @@
   var renderLater = false;
 
   // Zones de saisie par dossier (ajouter une ligne pour un autre champ, ex. « Commentaire »)
+  // Libellés propres au module CAES SHN (le reste des modules garde « Avis médecin »)
+  var SHN_AVIS_TITLE = 'Expertise de la maison de la performance';
+  var SHN_AVIS_PLACEHOLDER = 'Saisir l’expertise de la maison de la performance…';
+
   var NOTES = [
     { key:'avis', title:'Avis du médecin', placeholder:'Saisir l’avis du médecin…' }
   ];
@@ -638,7 +642,7 @@
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         var box = h('div', 'fld' + (f.wide ? ' wide' : ''));
-        box.appendChild(h('dt', null, f.title));
+        box.appendChild(h('dt', null, (r.type === 'sport' && f.name === 'AvisMedecin') ? SHN_AVIS_TITLE : f.title));
         var dd = h('dd');
         if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
@@ -651,11 +655,14 @@
         var useCol = n.key === 'avis' && !!mapping.AvisMedecin;
         var saved = useCol ? { t:r.avisMed, d:null } : (notes[nkey] || null);
         var savedText = saved ? (saved.t || '') : '';
+        var shn = (r.type === 'sport' && n.key === 'avis');
+        var nTitle = shn ? SHN_AVIS_TITLE : n.title;
+        var nPlace = shn ? SHN_AVIS_PLACEHOLDER : (n.placeholder || '');
         var wrap = h('div', 'note');
-        wrap.appendChild(h('div', 'note-label', n.title));
+        wrap.appendChild(h('div', 'note-label', nTitle));
         var ta = h('textarea', 'note-input');
-        ta.setAttribute('aria-label', n.title);
-        ta.placeholder = n.placeholder || '';
+        ta.setAttribute('aria-label', nTitle);
+        ta.placeholder = nPlace;
         ta.value = drafts[nkey] != null ? drafts[nkey] : savedText;
         var foot = h('div', 'note-foot');
         var info = h('span', 'note-info', saved && saved.d ? 'Enregistré le ' + new Date(saved.d).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '');
