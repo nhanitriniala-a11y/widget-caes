@@ -116,6 +116,14 @@
   .justif.on { background:var(--mint-100); border-color:var(--mint-400); color:var(--mint-700); }
   .justif.on .box { background:var(--mint-700); border-color:var(--mint-700); }
   .justif:disabled { opacity:.55; cursor:progress; }
+  .note { margin-top:12px; padding-top:12px; border-top:1px dashed var(--line); }
+  .note-label { font-weight:700; font-size:13px; color:var(--sky-900); margin-bottom:6px; }
+  .note-input { width:100%; box-sizing:border-box; min-height:64px; resize:vertical; font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:10px; background:var(--white); color:inherit; }
+  .note-input:focus { outline:2px solid var(--sky-500); outline-offset:1px; }
+  .note-foot { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; }
+  .note-info { font-size:12px; color:var(--muted); }
+  .note-save { border:1px solid var(--sky-500); background:var(--sky-500); color:#fff; border-radius:10px; padding:6px 14px; font-weight:600; cursor:pointer; }
+  .note-save:disabled { opacity:.45; cursor:default; }
   .empty { padding:34px; text-align:center; color:var(--muted); }
   .diag { margin-top:30px; color:var(--muted); font-size:13px; }
   .diag summary { cursor:pointer; }
@@ -191,16 +199,68 @@
     { name:'Nom',    title:'Nom du candidat', type:'Any', optional:true },
     { name:'Prenom', title:'Prénom du candidat', type:'Any', optional:true }
   ];
+  COLS.push({ name:'AvisMedecin', title:'Avis du médecin (colonne Texte, protégeable par les droits d’accès Grist)', type:'Text', optional:true });
   FIELDS.forEach(function (f) { COLS.push({ name:f.name, title:f.title, type:'Any', optional:true }); });
   grist.ready({ requiredAccess:'full', columns:COLS });
 
   // Cases « Justificatif » : mémorisées dans les réglages du widget (pas dans le tableau)
   var justifs = {};
+  var notes = {};     // « avis_12 » -> { t:texte, d:date ISO } : une clé par dossier, donc pas d'écrasement entre utilisateurs
+  var drafts = {};    // texte en cours de saisie, non encore enregistré
+  var renderLater = false;
+
+  // Zones de saisie par dossier (ajouter une ligne pour un autre champ, ex. « Commentaire »)
+  var NOTES = [
+    { key:'avis', title:'Avis du médecin', placeholder:'Saisir l’avis du médecin…' }
+  ];
+
   grist.onOptions(function (opts) {
-    justifs = (opts && opts.justifs) || {};
+    opts = opts || {};
+    justifs = opts.justifs || {};
+    notes = {};
+    Object.keys(opts).forEach(function (k) {
+      if (opts[k] && typeof opts[k] === 'object' && k.indexOf('avis_') === 0) notes[k] = opts[k];
+    });
     render();
   });
   function isJustif(id) { return !!justifs[id]; }
+  function typing() {
+    var a = document.activeElement;
+    return !!(a && a.classList && a.classList.contains('note-input'));
+  }
+  document.addEventListener('focusout', function () {
+    setTimeout(function () { if (renderLater && !typing()) { renderLater = false; render(); } }, 0);
+  });
+
+  function saveNote(nkey, text, btn, info, rowId) {
+    btn.disabled = true;
+    if (nkey.indexOf('avis_') === 0 && mapping && mapping.AvisMedecin) {
+      // Colonne du tableau : les droits d'accès Grist s'appliquent
+      var fields = {};
+      fields[mapping.AvisMedecin] = text;
+      grist.selectedTable.update({ id:rowId, fields:fields }).then(function () {
+        delete drafts[nkey];
+        toast('Avis enregistré');
+        renderLater = false;
+        render();
+      }).catch(function (e) {
+        btn.disabled = false;
+        toast('Enregistrement refusé (droits insuffisants ?) : ' + e.message);
+      });
+      return;
+    }
+    var val = { t:text, d:new Date().toISOString() };
+    Promise.resolve(grist.setOption(nkey, val)).then(function () {
+      notes[nkey] = val;
+      delete drafts[nkey];
+      toast('Enregistré');
+      renderLater = false;
+      render();
+    }).catch(function (e) {
+      btn.disabled = false;
+      toast('Échec de l’enregistrement : ' + e.message);
+    });
+  }
 
   /* ---------- Utilitaires ---------- */
   function norm(v) {
@@ -268,6 +328,7 @@
     var st = get('Statut'), ty = get('Type');
     var r = { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), f:{} };
     ALL.forEach(function (k) { r.f[k] = txt(get(k)); });
+    r.avisMed = get('AvisMedecin') == null ? '' : String(get('AvisMedecin'));
     return r;
   }
   function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
@@ -336,6 +397,7 @@
 
   /* ---------- Rendu ---------- */
   function render() {
+    if (typing()) { renderLater = true; return; }
     var notice = document.getElementById('notice');
     notice.innerHTML = '';
     if (!mapping) {
@@ -583,6 +645,32 @@
         grid.appendChild(box);
       });
       if (grid.childNodes.length) card.appendChild(grid);
+
+      NOTES.forEach(function (n) {
+        var nkey = n.key + '_' + r.id;
+        var useCol = n.key === 'avis' && !!mapping.AvisMedecin;
+        var saved = useCol ? { t:r.avisMed, d:null } : (notes[nkey] || null);
+        var savedText = saved ? (saved.t || '') : '';
+        var wrap = h('div', 'note');
+        wrap.appendChild(h('div', 'note-label', n.title));
+        var ta = h('textarea', 'note-input');
+        ta.setAttribute('aria-label', n.title);
+        ta.placeholder = n.placeholder || '';
+        ta.value = drafts[nkey] != null ? drafts[nkey] : savedText;
+        var foot = h('div', 'note-foot');
+        var info = h('span', 'note-info', saved && saved.d ? 'Enregistré le ' + new Date(saved.d).toLocaleString('fr-FR', { dateStyle:'short', timeStyle:'short' }) : '');
+        var sb = h('button', 'note-save', 'Enregistrer');
+        sb.disabled = ta.value === savedText;
+        ta.addEventListener('input', function () {
+          drafts[nkey] = ta.value;
+          sb.disabled = ta.value === savedText;
+        });
+        sb.addEventListener('click', function () { saveNote(nkey, ta.value, sb, info, r.id); });
+        foot.appendChild(info); foot.appendChild(sb);
+        wrap.appendChild(ta); wrap.appendChild(foot);
+        card.appendChild(wrap);
+      });
+
       panel.appendChild(card);
     });
 
