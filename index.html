@@ -79,6 +79,8 @@
   .module .seg-s { background:#f5c26b; }
   .module.courrier { background:var(--rose-700); box-shadow:0 10px 26px rgba(143,52,56,.28); }
   .module.courrier:hover, .module.courrier.active { background:#6d2528; }
+  .module.etab { background:#2b7a8c; box-shadow:0 10px 26px rgba(43,122,140,.28); }
+  .module.etab:hover, .module.etab.active { background:#1d5967; }
   .module.autre { background:#7d96ab; box-shadow:none; min-height:170px; }
   .module.autre:hover, .module.autre.active { background:#4f6a80; }
 
@@ -155,7 +157,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v12 (10/11/2026) · Sport et Statut SHN sur la ligne du numéro de dossier</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v14 (10/11/2026) · module Réponse établissement allégé</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -197,17 +199,19 @@
 
   // Champs affichés pour chaque candidat (dans cet ordre)
   var FIELDS = [
+    { name:'EtabAccueil',   title:'Établissement à qui envoyer le dossier', onlyView:'etab', wide:true },
+    { name:'AdmissionPS',   title:'Admission Parcoursup actuelle',          onlyView:'etab', wide:true },
     { name:'Bac',           title:'Bac' },
     { name:'Academie',      title:'Académie d\'origine' },
     { name:'Justificatifs', title:'Justificatifs reçus', kind:'choice',
       opts:[ { label:'Oui', cls:'t', yes:true }, { label:'Non', cls:'c', yes:false } ] },
     { name:'SportPratique', title:'Sport pratiqué', onlyType:'sport', hl:true },
     { name:'StatutSHN',     title:'Statut SHN',     onlyType:'sport', hl:true },
-    { name:'Observation',   title:'Observation',                        wide:true },
+    { name:'Observation',   title:'Observation',                        wide:true, hideInView:'etab' },
     { name:'Formation',     title:'Formation demandée par le candidat', wide:true },
-    { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true },
-    { name:'Situation',     title:'Situation finale',                   wide:true },
-    { name:'CourrierRefus', title:'Courrier de refus', kind:'choice', wide:true,
+    { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true, hideInView:'etab' },
+    { name:'Situation',     title:'Situation finale',                   wide:true, hideInView:'etab' },
+    { name:'CourrierRefus', title:'Courrier de refus', kind:'choice', wide:true, hideInView:'etab',
       opts:[ { label:'À faire', cls:'a', key:'afaire' }, { label:'À la signature', cls:'s', key:'signature' }, { label:'Envoyé', cls:'t', key:'envoye' } ] }
   ];
   var IDENT = ['Numero', 'Nom', 'Prenom'];
@@ -219,6 +223,7 @@
     { name:'Nom',    title:'Nom du candidat', type:'Any', optional:true },
     { name:'Prenom', title:'Prénom du candidat', type:'Any', optional:true }
   ];
+  COLS.push({ name:'AvisEtab', title:'Avis étab / université (zone de saisie du module Réponse établissement d’accueil)', type:'Text', optional:true });
   COLS.push({ name:'AvisMedecin', title:'Avis du médecin (colonne Texte, protégeable par les droits d’accès Grist)', type:'Text', optional:true });
   FIELDS.forEach(function (f) { COLS.push({ name:f.name, title:f.title, type:'Any', optional:true }); });
   grist.ready({ requiredAccess:'full', columns:COLS });
@@ -233,7 +238,8 @@
   var SHN_AVIS_PLACEHOLDER = 'Saisir l’expertise de la maison de la performance…';
 
   var NOTES = [
-    { key:'avis', title:'Avis du médecin', placeholder:'Saisir l’avis du médecin…' }
+    { key:'avis', col:'AvisMedecin', title:'Avis du médecin', placeholder:'Saisir l’avis du médecin…' },
+    { key:'etab', col:'AvisEtab', title:'Avis établissement', placeholder:'Saisir l’avis de l’établissement…', onlyView:'etab' }
   ];
 
   grist.onOptions(function (opts) {
@@ -252,13 +258,14 @@
     setTimeout(function () { if (renderLater && !typing()) { renderLater = false; render(); } }, 0);
   });
 
-  function saveNote(nkey, text, btn, info, rowId) {
+  function saveNote(nkey, text, btn, info, rowId, col, setLocal) {
     btn.disabled = true;
-    if (nkey.indexOf('avis_') === 0 && mapping && mapping.AvisMedecin) {
+    if (col && mapping && mapping[col]) {
       // Colonne du tableau : les droits d'accès Grist s'appliquent
       var fields = {};
-      fields[mapping.AvisMedecin] = text;
+      fields[mapping[col]] = text;
       grist.selectedTable.update({ id:rowId, fields:fields }).then(function () {
+        if (setLocal) setLocal(text);
         delete drafts[nkey];
         toast('Avis enregistré');
         renderLater = false;
@@ -349,6 +356,7 @@
     var r = { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), f:{} };
     ALL.forEach(function (k) { r.f[k] = txt(get(k)); });
     r.avisMed = get('AvisMedecin') == null ? '' : String(get('AvisMedecin'));
+    r.avisEtab = get('AvisEtab') == null ? '' : String(get('AvisEtab'));
     r.rawF = {};
     FIELDS.forEach(function (f) { if (f.kind === 'choice') r.rawF[f.name] = get(f.name); });
     return r;
@@ -404,6 +412,16 @@
     var f = courrierField();
     var i = selectedIdx(f, r.rawF.CourrierRefus);
     return i === -1 ? '' : f.opts[i].key;
+  }
+  // Réponse établissement : '' (dossier non envoyé), 'attente' (pas d'avis) ou 'recu' (avis saisi)
+  function etabState(r) {
+    if (!r.f.EtabAccueil) return '';
+    return r.avisEtab.trim() ? 'recu' : 'attente';
+  }
+  function etabMatch(r) {
+    var st = etabState(r);
+    if (view.etab === 'all') return st !== '';
+    return st === view.etab;
   }
   // view.courrier : 'all' (tous les courriers renseignés), 'afaire', 'signature' ou 'envoye'
   function courrierMatch(r) {
@@ -486,7 +504,7 @@
     var cards = document.querySelectorAll('#stats .stat');
     Array.prototype.forEach.call(cards, function (c) {
       var k = c.getAttribute('data-k');
-      var on = view.open && !view.type && !view.courrier && ((k === 'all' && !view.statut) || k === view.statut);
+      var on = view.open && !view.type && !view.courrier && !view.etab && ((k === 'all' && !view.statut) || k === view.statut);
       c.classList.toggle('active', !!on);
     });
   }
@@ -589,6 +607,42 @@
       });
       m.appendChild(cb);
     }
+
+    // Module « Réponse établissement d'accueil » : dossiers dont la colonne « établissement à qui envoyer le dossier » est renseignée
+    if (mapping && mapping.EtabAccueil) {
+      var eAtt = rows.filter(function (r) { return etabState(r) === 'attente'; });
+      var eRec = rows.filter(function (r) { return etabState(r) === 'recu'; });
+      var eTot = eAtt.length + eRec.length;
+      var eb = h('button', 'module etab' + (view.etab && view.open ? ' active' : ''));
+      eb.appendChild(h('span', 'title', 'RÉPONSE ÉTABLISSEMENT D’ACCUEIL'));
+      var et = h('span', 'total', String(eTot));
+      et.appendChild(h('small', null, 'dossier' + (eTot > 1 ? 's' : '') + ' envoyé' + (eTot > 1 ? 's' : '')));
+      eb.appendChild(et);
+      var ebar = h('div', 'bar');
+      [['seg-a', eAtt], ['seg-t', eRec]].forEach(function (x) {
+        var sp = h('span', x[0]); sp.style.width = pct(x[1].length, eTot) + '%'; ebar.appendChild(sp);
+      });
+      eb.appendChild(ebar);
+      var ep = h('span', 'pills');
+      function ePill(cls, text, mode) {
+        var pl = h('span', 'pill ' + cls, text);
+        pl.setAttribute('role', 'button');
+        pl.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          view = { type:null, statut:null, etab:mode, open:true };
+          render(); scrollToPanel();
+        });
+        return pl;
+      }
+      ep.appendChild(ePill('', eAtt.length + ' en attente d’avis', 'attente'));
+      ep.appendChild(ePill('t', eRec.length + ' avis reçu' + (eRec.length > 1 ? 's' : ''), 'recu'));
+      eb.appendChild(ep);
+      eb.addEventListener('click', function () {
+        view = { type:null, statut:null, etab:'all', open:true };
+        render(); scrollToPanel();
+      });
+      m.appendChild(eb);
+    }
   }
 
   function diagTable(d, title, rawKey, labelFn) {
@@ -646,6 +700,7 @@
     var list = rows.filter(function (r) {
       if (view.type && r.type !== view.type) return false;
       if (view.courrier && !courrierMatch(r)) return false;
+      if (view.etab && !etabMatch(r)) return false;
       if (view.statut && r.statut !== view.statut) return false;
       if (q) {
         var hay = norm([moduleLabel(r.type), 'dossier ' + r.id].concat(ALL.map(function (k) { return r.f[k]; })).join(' '));
@@ -671,8 +726,8 @@
     host.innerHTML = '';
     if (!view.open) return;
 
-    var scope = rows.filter(function (r) { return (!view.type || r.type === view.type) && (!view.courrier || courrierState(r) !== ''); });
-    var title = view.courrier ? 'Suivi courriers de refus' : (view.type ? moduleLabel(view.type) : 'Toutes les demandes');
+    var scope = rows.filter(function (r) { return (!view.type || r.type === view.type) && (!view.courrier || courrierState(r) !== '') && (!view.etab || etabState(r) !== ''); });
+    var title = view.etab ? 'Réponse établissement d’accueil' : view.courrier ? 'Suivi courriers de refus' : (view.type ? moduleLabel(view.type) : 'Toutes les demandes');
 
     var panel = h('section', 'panel');
     var head = h('div', 'panel-head');
@@ -703,6 +758,14 @@
         var c = h('button', 'chip' + d[2] + (view.courrier === d[0] ? ' active' : ''), d[1]);
         c.appendChild(h('b', null, String(d[3])));
         c.addEventListener('click', function () { view.courrier = d[0]; render(); });
+        chips.appendChild(c);
+      });
+    } else if (view.etab) {
+      function ne(k) { return scope.filter(function (r) { return etabState(r) === k; }).length; }
+      [['all', 'Tous', '', scope.length], ['attente', 'En attente d’avis', '', ne('attente')], ['recu', 'Avis reçus', ' t', ne('recu')]].forEach(function (d) {
+        var c = h('button', 'chip' + d[2] + (view.etab === d[0] ? ' active' : ''), d[1]);
+        c.appendChild(h('b', null, String(d[3])));
+        c.addEventListener('click', function () { view.etab = d[0]; render(); });
         chips.appendChild(c);
       });
     } else {
@@ -763,7 +826,9 @@
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         if (f.hl) return;                 // affiché sur la ligne du numéro de dossier
-        if (f.onlyType && r.type !== f.onlyType) return;   // champ réservé à un module (ici CAES SHN)
+        if (f.onlyType && r.type !== f.onlyType) return;
+        if (f.hideInView && view[f.hideInView]) return;   // champ masqué dans ce module (ici Réponse établissement)
+        if (f.onlyView && !view[f.onlyView]) return;      // champ réservé à un module (ici Réponse établissement)   // champ réservé à un module (ici CAES SHN)
         var box = h('div', 'fld' + (f.wide ? ' wide' : '') + (f.hl ? ' hl' : ''));
         box.appendChild(h('dt', null, f.title));
         var dd = h('dd');
@@ -791,9 +856,15 @@
       if (grid.childNodes.length) card.appendChild(grid);
 
       NOTES.forEach(function (n) {
+        if (n.onlyView && !view[n.onlyView]) return;          // zone réservée à un module
+        if (n.key === 'avis' && view.etab) return;            // l'avis du médecin n'apparaît pas dans le module établissement
         var nkey = n.key + '_' + r.id;
-        var useCol = n.key === 'avis' && !!mapping.AvisMedecin;
-        var saved = useCol ? { t:r.avisMed, d:null } : (notes[nkey] || null);
+        if (n.key === 'etab' && !mapping.AvisEtab) {
+          card.appendChild(h('div', 'note-info', 'Associez la colonne « Avis étab / université » dans le panneau de droite du widget pour saisir l’avis.'));
+          return;
+        }
+        var useCol = !!(n.col && mapping[n.col]);
+        var saved = useCol ? { t:(n.key === 'etab' ? r.avisEtab : r.avisMed), d:null } : (notes[nkey] || null);
         var savedText = saved ? (saved.t || '') : '';
         var shn = (r.type === 'sport' && n.key === 'avis');
         var nTitle = shn ? SHN_AVIS_TITLE : n.title;
@@ -812,7 +883,9 @@
           drafts[nkey] = ta.value;
           sb.disabled = ta.value === savedText;
         });
-        sb.addEventListener('click', function () { saveNote(nkey, ta.value, sb, info, r.id); });
+        sb.addEventListener('click', function () {
+          saveNote(nkey, ta.value, sb, info, r.id, n.col, function (t) { if (n.key === 'etab') r.avisEtab = t; else r.avisMed = t; });
+        });
         foot.appendChild(info); foot.appendChild(sb);
         wrap.appendChild(ta); wrap.appendChild(foot);
         card.appendChild(wrap);
