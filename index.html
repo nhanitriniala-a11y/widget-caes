@@ -98,6 +98,11 @@
   .fld dt { font-size:12px; font-weight:700; color:var(--sky-800); }
   .fld dd { margin:1px 0 0; overflow-wrap:anywhere; white-space:pre-wrap; }
   .fld dd.none { color:var(--muted); }
+  .yn { display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; }
+  .yn input { width:18px; height:18px; margin:0; accent-color:var(--mint-700); cursor:pointer; }
+  .yn.on { color:var(--mint-700); }
+  .yn.off { color:var(--muted); }
+  .yn input:disabled { cursor:progress; }
   .who { font-weight:700; font-size:16px; }
   .sub { color:var(--muted); font-size:13px; }
   .tag { display:inline-block; margin-left:8px; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:700; vertical-align:middle; }
@@ -184,8 +189,8 @@
   var FIELDS = [
     { name:'Bac',           title:'Bac' },
     { name:'Academie',      title:'Académie d\'origine' },
-    { name:'Justificatifs', title:'Justificatifs reçus' },
-    { name:'AvisMedecin',   title:'Avis médecin',                       wide:true },
+    { name:'Justificatifs', title:'Justificatifs reçus', kind:'check' },
+    { name:'Observation',   title:'Observation',                        wide:true },
     { name:'Formation',     title:'Formation demandée par le candidat', wide:true },
     { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true },
     { name:'Situation',     title:'Situation finale',                   wide:true }
@@ -333,7 +338,29 @@
     var r = { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), f:{} };
     ALL.forEach(function (k) { r.f[k] = txt(get(k)); });
     r.avisMed = get('AvisMedecin') == null ? '' : String(get('AvisMedecin'));
+    r.rawJ = get('Justificatifs');
     return r;
+  }
+  function isYes(v) {
+    if (v === true || v === 1) return true;
+    var n = norm(v);
+    return n === 'oui' || n === 'true' || n === 'vrai' || n === 'x' || n === '1' || n === 'yes';
+  }
+  // Colonne de type Case à cocher (booléen) ? Sinon on écrit « Oui » / « Non » en texte
+  function justifIsBool() {
+    return rows.some(function (r) { return typeof r.rawJ === 'boolean'; });
+  }
+  function setJustifCol(r, checked, input) {
+    var fields = {};
+    fields[mapping.Justificatifs] = justifIsBool() ? checked : (checked ? 'Oui' : 'Non');
+    input.disabled = true;
+    grist.selectedTable.update({ id:r.id, fields:fields }).then(function () {
+      toast(checked ? 'Justificatifs reçus : Oui' : 'Justificatifs reçus : Non');
+    }).catch(function (e) {
+      input.disabled = false;
+      input.checked = !checked;
+      toast('Échec de la mise à jour : ' + e.message);
+    });
   }
   function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
   function candTitle(r) { return fullName(r) || ('Dossier n° ' + (r.f.Numero || r.id)); }
@@ -642,9 +669,20 @@
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         var box = h('div', 'fld' + (f.wide ? ' wide' : ''));
-        box.appendChild(h('dt', null, (r.type === 'sport' && f.name === 'AvisMedecin') ? SHN_AVIS_TITLE : f.title));
+        box.appendChild(h('dt', null, f.title));
         var dd = h('dd');
-        if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
+        if (f.kind === 'check') {
+          var yes = isYes(r.rawJ);
+          var lab = h('label', 'yn ' + (yes ? 'on' : 'off'));
+          var cb = h('input');
+          cb.type = 'checkbox';
+          cb.checked = yes;
+          cb.setAttribute('aria-label', f.title);
+          cb.addEventListener('change', function () { setJustifCol(r, cb.checked, cb); });
+          lab.appendChild(cb);
+          lab.appendChild(document.createTextNode(yes ? 'Oui' : 'Non'));
+          dd.appendChild(lab);
+        } else if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
         grid.appendChild(box);
       });
