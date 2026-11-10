@@ -98,11 +98,7 @@
   .fld dt { font-size:12px; font-weight:700; color:var(--sky-800); }
   .fld dd { margin:1px 0 0; overflow-wrap:anywhere; white-space:pre-wrap; }
   .fld dd.none { color:var(--muted); }
-  .yn { display:inline-flex; align-items:center; gap:8px; cursor:pointer; font-weight:600; }
-  .yn input { width:18px; height:18px; margin:0; accent-color:var(--mint-700); cursor:pointer; }
-  .yn.on { color:var(--mint-700); }
-  .yn.off { color:var(--muted); }
-  .yn input:disabled { cursor:progress; }
+  .fld .seg { margin-top:3px; }
   .who { font-weight:700; font-size:16px; }
   .sub { color:var(--muted); font-size:13px; }
   .tag { display:inline-block; margin-left:8px; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:700; vertical-align:middle; }
@@ -189,11 +185,14 @@
   var FIELDS = [
     { name:'Bac',           title:'Bac' },
     { name:'Academie',      title:'Académie d\'origine' },
-    { name:'Justificatifs', title:'Justificatifs reçus', kind:'check' },
+    { name:'Justificatifs', title:'Justificatifs reçus', kind:'choice',
+      opts:[ { label:'Oui', cls:'t', yes:true }, { label:'Non', cls:'c', yes:false } ] },
     { name:'Observation',   title:'Observation',                        wide:true },
     { name:'Formation',     title:'Formation demandée par le candidat', wide:true },
     { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true },
-    { name:'Situation',     title:'Situation finale',                   wide:true }
+    { name:'Situation',     title:'Situation finale',                   wide:true },
+    { name:'CourrierRefus', title:'Courrier de refus', kind:'choice',
+      opts:[ { label:'Envoyé', cls:'t' }, { label:'À faire', cls:'a' } ] }
   ];
   var IDENT = ['Numero', 'Nom', 'Prenom'];
 
@@ -208,8 +207,6 @@
   FIELDS.forEach(function (f) { COLS.push({ name:f.name, title:f.title, type:'Any', optional:true }); });
   grist.ready({ requiredAccess:'full', columns:COLS });
 
-  // Cases « Justificatif » : mémorisées dans les réglages du widget (pas dans le tableau)
-  var justifs = {};
   var notes = {};     // « avis_12 » -> { t:texte, d:date ISO } : une clé par dossier, donc pas d'écrasement entre utilisateurs
   var drafts = {};    // texte en cours de saisie, non encore enregistré
   var renderLater = false;
@@ -225,14 +222,12 @@
 
   grist.onOptions(function (opts) {
     opts = opts || {};
-    justifs = opts.justifs || {};
     notes = {};
     Object.keys(opts).forEach(function (k) {
       if (opts[k] && typeof opts[k] === 'object' && k.indexOf('avis_') === 0) notes[k] = opts[k];
     });
     render();
   });
-  function isJustif(id) { return !!justifs[id]; }
   function typing() {
     var a = document.activeElement;
     return !!(a && a.classList && a.classList.contains('note-input'));
@@ -338,7 +333,8 @@
     var r = { id:id, raw:txt(st), rawType:txt(ty), rawKind:typeof st, statut:statutOf(st), type:typeOf(ty), f:{} };
     ALL.forEach(function (k) { r.f[k] = txt(get(k)); });
     r.avisMed = get('AvisMedecin') == null ? '' : String(get('AvisMedecin'));
-    r.rawJ = get('Justificatifs');
+    r.rawF = {};
+    FIELDS.forEach(function (f) { if (f.kind === 'choice') r.rawF[f.name] = get(f.name); });
     return r;
   }
   function isYes(v) {
@@ -346,19 +342,32 @@
     var n = norm(v);
     return n === 'oui' || n === 'true' || n === 'vrai' || n === 'x' || n === '1' || n === 'yes';
   }
-  // Colonne de type Case à cocher (booléen) ? Sinon on écrit « Oui » / « Non » en texte
-  function justifIsBool() {
-    return rows.some(function (r) { return typeof r.rawJ === 'boolean'; });
+  function isNo(v) {
+    if (v === false || v === 0) return true;
+    var n = norm(v);
+    return n === 'non' || n === 'false' || n === 'faux' || n === 'no';
   }
-  function setJustifCol(r, checked, input) {
+  // Colonne de type Case à cocher (booléen) ? Sinon on écrit le libellé en texte
+  function colIsBool(name) {
+    return rows.some(function (r) { return typeof r.rawF[name] === 'boolean'; });
+  }
+  // Index du bouton actuellement sélectionné (-1 = aucun)
+  function selectedIdx(f, raw) {
+    if (f.name === 'Justificatifs') return isYes(raw) ? 0 : (isNo(raw) ? 1 : -1);
+    var n = norm(raw);
+    for (var i = 0; i < f.opts.length; i++) {
+      if (n && n.indexOf(norm(f.opts[i].label)) !== -1) return i;
+    }
+    return -1;
+  }
+  function setChoice(r, f, opt, btns) {
     var fields = {};
-    fields[mapping.Justificatifs] = justifIsBool() ? checked : (checked ? 'Oui' : 'Non');
-    input.disabled = true;
+    fields[mapping[f.name]] = (opt.yes !== undefined && colIsBool(f.name)) ? opt.yes : opt.label;
+    btns.forEach(function (b) { b.disabled = true; });
     grist.selectedTable.update({ id:r.id, fields:fields }).then(function () {
-      toast(checked ? 'Justificatifs reçus : Oui' : 'Justificatifs reçus : Non');
+      toast(f.title + ' : ' + opt.label);
     }).catch(function (e) {
-      input.disabled = false;
-      input.checked = !checked;
+      btns.forEach(function (b) { b.disabled = false; });
       toast('Échec de la mise à jour : ' + e.message);
     });
   }
@@ -393,21 +402,6 @@
       toast('Dossier mis à jour : ' + statutLabel(key));
     }).catch(function (e) {
       btns.forEach(function (b) { b.disabled = false; });
-      toast('Échec de la mise à jour : ' + e.message);
-    });
-  }
-
-  function setJustif(id, value, btn) {
-    var next = {};
-    Object.keys(justifs).forEach(function (k) { next[k] = justifs[k]; });
-    if (value) next[id] = true; else delete next[id];
-    btn.disabled = true;
-    Promise.resolve(grist.setOption('justifs', next)).then(function () {
-      justifs = next;
-      toast(value ? 'Justificatif coché' : 'Justificatif décoché');
-      renderPanel();
-    }).catch(function (e) {
-      btn.disabled = false;
       toast('Échec de la mise à jour : ' + e.message);
     });
   }
@@ -654,14 +648,6 @@
       });
       var actions = h('div', 'actions');
       actions.appendChild(seg);
-      var ok = isJustif(r.id);
-      var jb = h('button', 'justif' + (ok ? ' on' : ''));
-      jb.setAttribute('role', 'checkbox');
-      jb.setAttribute('aria-checked', ok ? 'true' : 'false');
-      jb.appendChild(h('span', 'box', ok ? '✓' : ''));
-      jb.appendChild(document.createTextNode('Justificatif'));
-      jb.addEventListener('click', function () { setJustif(r.id, !ok, jb); });
-      actions.appendChild(jb);
       top.appendChild(actions);
       card.appendChild(top);
 
@@ -671,17 +657,19 @@
         var box = h('div', 'fld' + (f.wide ? ' wide' : ''));
         box.appendChild(h('dt', null, f.title));
         var dd = h('dd');
-        if (f.kind === 'check') {
-          var yes = isYes(r.rawJ);
-          var lab = h('label', 'yn ' + (yes ? 'on' : 'off'));
-          var cb = h('input');
-          cb.type = 'checkbox';
-          cb.checked = yes;
-          cb.setAttribute('aria-label', f.title);
-          cb.addEventListener('change', function () { setJustifCol(r, cb.checked, cb); });
-          lab.appendChild(cb);
-          lab.appendChild(document.createTextNode(yes ? 'Oui' : 'Non'));
-          dd.appendChild(lab);
+        if (f.kind === 'choice') {
+          var sel = selectedIdx(f, r.rawF[f.name]);
+          var grp = h('div', 'seg');
+          grp.setAttribute('role', 'group');
+          grp.setAttribute('aria-label', f.title);
+          var fb = [];
+          f.opts.forEach(function (o, i) {
+            var bt = h('button', i === sel ? 'on ' + o.cls : '', o.label);
+            bt.setAttribute('aria-pressed', i === sel ? 'true' : 'false');
+            if (i !== sel) bt.addEventListener('click', function () { setChoice(r, f, o, fb); });
+            fb.push(bt); grp.appendChild(bt);
+          });
+          dd.appendChild(grp);
         } else if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
         grid.appendChild(box);
