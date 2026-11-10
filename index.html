@@ -99,6 +99,8 @@
   .fld dd { margin:1px 0 0; overflow-wrap:anywhere; white-space:pre-wrap; }
   .fld dd.none { color:var(--muted); }
   .fld .seg { margin-top:3px; }
+  .ferr { margin-top:4px; font-size:12px; font-weight:600; color:var(--rose-700); }
+  .fraw { margin-top:4px; font-size:12px; color:var(--muted); }
   .who { font-weight:700; font-size:16px; }
   .sub { color:var(--muted); font-size:13px; }
   .tag { display:inline-block; margin-left:8px; padding:1px 9px; border-radius:999px; font-size:12px; font-weight:700; vertical-align:middle; }
@@ -142,6 +144,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v5 (10/11/2026) · boutons Oui/Non et Envoyé/À faire</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -360,15 +363,26 @@
     }
     return -1;
   }
-  function setChoice(r, f, opt, btns) {
+  function setChoice(r, f, opt, btns, errBox) {
+    errBox.textContent = '';
+    if (!mapping || !mapping[f.name]) {
+      errBox.textContent = 'Colonne non associée : choisissez la colonne « ' + f.title + ' » dans le panneau de droite du widget.';
+      return;
+    }
+    var value = (opt.yes !== undefined && colIsBool(f.name)) ? opt.yes : opt.label;
     var fields = {};
-    fields[mapping[f.name]] = (opt.yes !== undefined && colIsBool(f.name)) ? opt.yes : opt.label;
+    fields[mapping[f.name]] = value;
     btns.forEach(function (b) { b.disabled = true; });
     grist.selectedTable.update({ id:r.id, fields:fields }).then(function () {
+      r.rawF[f.name] = value;           // affichage immédiat, sans attendre Grist
+      r.f[f.name] = txt(value);
       toast(f.title + ' : ' + opt.label);
+      renderLater = false;
+      render();
     }).catch(function (e) {
       btns.forEach(function (b) { b.disabled = false; });
-      toast('Échec de la mise à jour : ' + e.message);
+      var msg = (e && e.message) ? e.message : String(e);
+      errBox.textContent = 'Échec de l’écriture dans la colonne « ' + mapping[f.name] + ' » : ' + msg;
     });
   }
   function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
@@ -427,6 +441,14 @@
     notice.innerHTML = '';
     if (!mapping) {
       notice.appendChild(h('div', 'notice', 'Dans Grist, associez les colonnes dans le panneau de droite : Statut, Type de saisine, et si vous le souhaitez le nom du dossier.'));
+    }
+    if (mapping) {
+      var missing = [];
+      FIELDS.forEach(function (f) { if (f.kind === 'choice' && !mapping[f.name]) missing.push(f.title); });
+      if (!mapping.Observation) missing.push('Observation');
+      if (missing.length) {
+        notice.appendChild(h('div', 'notice', 'Colonnes à associer dans le panneau de droite du widget : ' + missing.join(', ') + '.'));
+      }
     }
     renderStats();
     renderModules();
@@ -534,6 +556,9 @@
     d.appendChild(h('summary', null, 'Contrôle : comment les colonnes sont lues'));
     d.appendChild(h('p', null, 'Colonnes associées : Statut = ' + mapping.Statut + ' · Type = ' + mapping.Type +
       ' · première valeur de statut lue : ' + rows[0].rawKind));
+    d.appendChild(h('p', null, 'Justificatifs reçus = ' + (mapping.Justificatifs || 'non associée') + ' (' + (colIsBool('Justificatifs') ? 'case à cocher' : 'texte') + ')' +
+      ' · Courrier de refus = ' + (mapping.CourrierRefus || 'non associée') +
+      ' · Observation = ' + (mapping.Observation || 'non associée')));
     diagTable(d, 'Colonne Statut', 'raw', function (r) { return statutLabel(r.statut); });
     diagTable(d, 'Colonne Type de saisine', 'rawType', function (r) { return moduleLabel(r.type); });
   }
@@ -663,13 +688,17 @@
           grp.setAttribute('role', 'group');
           grp.setAttribute('aria-label', f.title);
           var fb = [];
+          var errBox = h('div', 'ferr');
           f.opts.forEach(function (o, i) {
             var bt = h('button', i === sel ? 'on ' + o.cls : '', o.label);
             bt.setAttribute('aria-pressed', i === sel ? 'true' : 'false');
-            if (i !== sel) bt.addEventListener('click', function () { setChoice(r, f, o, fb); });
+            if (i !== sel) bt.addEventListener('click', function () { setChoice(r, f, o, fb, errBox); });
             fb.push(bt); grp.appendChild(bt);
           });
           dd.appendChild(grp);
+          var rawTxt = txt(r.rawF[f.name]);
+          if (sel === -1 && rawTxt !== '') dd.appendChild(h('div', 'fraw', 'Valeur actuelle dans le tableau : « ' + rawTxt + ' »'));
+          dd.appendChild(errBox);
         } else if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
         grid.appendChild(box);
