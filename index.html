@@ -109,8 +109,8 @@
   .fld .seg button.on { box-shadow:0 2px 6px rgba(20,82,127,.18); }
   @media (max-width:420px) { .fld .seg button { padding:7px 10px; font-size:13px; } }
   .fld.hl { background:#fff4bf; border-radius:12px; padding:9px 14px; }
-  .fld.hl dt { color:#6b5200; font-weight:800; }
-  .fld.hl dd { font-weight:800; color:#3d2f00; }
+  .shn-row { grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
+  @media (max-width:420px) { .shn-row { grid-template-columns:1fr; } }
   .ferr { margin-top:4px; font-size:12px; font-weight:600; color:var(--rose-700); }
   .fraw { margin-top:4px; font-size:12px; color:var(--muted); }
   .who { font-weight:700; font-size:16px; }
@@ -156,7 +156,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v10 (10/11/2026) · boutons sur une ligne, champs SHN en évidence</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v11 (10/11/2026) · Sport pratiqué et Statut SHN côte à côte</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -755,6 +755,7 @@
       card.appendChild(top);
 
       var grid = h('dl', 'fields');
+      var shnRow = null;     // ligne qui réunit « Sport pratiqué » et « Statut SHN » côte à côte
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         if (f.onlyType && r.type !== f.onlyType) return;   // champ réservé à un module (ici CAES SHN)
@@ -780,7 +781,10 @@
           dd.appendChild(errBox);
         } else if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
-        grid.appendChild(box);
+        if (f.hl) {
+          if (!shnRow) { shnRow = h('div', 'shn-row'); grid.appendChild(shnRow); }
+          shnRow.appendChild(box);
+        } else grid.appendChild(box);
       });
       if (grid.childNodes.length) card.appendChild(grid);
 
