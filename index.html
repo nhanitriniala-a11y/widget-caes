@@ -73,6 +73,8 @@
   .pill { padding:3px 11px; border-radius:999px; font-size:13px; font-weight:700; background:var(--sky-100); color:var(--sky-900); }
   .pill.t { background:var(--mint-100); color:var(--mint-700); }
   .pill.c { background:var(--rose-100); color:var(--rose-700); }
+  .module.courrier { background:var(--rose-700); box-shadow:0 10px 26px rgba(143,52,56,.28); }
+  .module.courrier:hover, .module.courrier.active { background:#6d2528; }
   .module.autre { background:#7d96ab; box-shadow:none; min-height:170px; }
   .module.autre:hover, .module.autre.active { background:#4f6a80; }
 
@@ -144,7 +146,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v5 (10/11/2026) · boutons Oui/Non et Envoyé/À faire</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v7 (10/11/2026) · module Suivi courriers de refus</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -385,6 +387,15 @@
       errBox.textContent = 'Échec de l’écriture dans la colonne « ' + mapping[f.name] + ' » : ' + msg;
     });
   }
+  function courrierField() { return FIELDS.filter(function (f) { return f.name === 'CourrierRefus'; })[0]; }
+  function courrierState(r) { return selectedIdx(courrierField(), r.rawF.CourrierRefus); }   // 1 = à faire, 0 = envoyé
+  // view.courrier : 'all' (tous les courriers renseignés), 'afaire' ou 'envoye'
+  function courrierMatch(r) {
+    var st = courrierState(r);
+    if (view.courrier === 'afaire') return st === 1;
+    if (view.courrier === 'envoye') return st === 0;
+    return st !== -1;
+  }
   function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
   function candTitle(r) { return fullName(r) || ('Dossier n° ' + (r.f.Numero || r.id)); }
 
@@ -460,7 +471,7 @@
     var cards = document.querySelectorAll('#stats .stat');
     Array.prototype.forEach.call(cards, function (c) {
       var k = c.getAttribute('data-k');
-      var on = view.open && !view.type && ((k === 'all' && !view.statut) || k === view.statut);
+      var on = view.open && !view.type && !view.courrier && ((k === 'all' && !view.statut) || k === view.statut);
       c.classList.toggle('active', !!on);
     });
   }
@@ -525,6 +536,42 @@
       });
       m.appendChild(b);
     });
+
+    // Module « Suivi courriers de refus » : alimenté par le champ « Courrier de refus » des dossiers
+    if (mapping && mapping.CourrierRefus) {
+      var aFaire = rows.filter(function (r) { return courrierState(r) === 1; });
+      var envoyes = rows.filter(function (r) { return courrierState(r) === 0; });
+      var nTot = aFaire.length + envoyes.length;
+      var cb = h('button', 'module courrier' + (view.courrier && view.open ? ' active' : ''));
+      cb.appendChild(h('span', 'title', 'SUIVI COURRIERS DE REFUS'));
+      var ct = h('span', 'total', String(nTot));
+      ct.appendChild(h('small', null, 'courrier' + (nTot > 1 ? 's' : '') + ' suivi' + (nTot > 1 ? 's' : '')));
+      cb.appendChild(ct);
+      var cbar = h('div', 'bar');
+      var segE = h('span', 'seg-t'); segE.style.width = pct(envoyes.length, nTot) + '%';
+      var segF = h('span', 'seg-a'); segF.style.width = pct(aFaire.length, nTot) + '%';
+      cbar.appendChild(segE); cbar.appendChild(segF);
+      cb.appendChild(cbar);
+      var cp = h('span', 'pills');
+      function pillLink(cls, text, mode) {
+        var pl = h('span', 'pill ' + cls, text);
+        pl.setAttribute('role', 'button');
+        pl.addEventListener('click', function (ev) {
+          ev.stopPropagation();
+          view = { type:null, statut:null, courrier:mode, open:true };
+          render(); scrollToPanel();
+        });
+        return pl;
+      }
+      cp.appendChild(pillLink('', aFaire.length + ' courrier' + (aFaire.length > 1 ? 's' : '') + ' à faire', 'afaire'));
+      cp.appendChild(pillLink('t', envoyes.length + ' courrier' + (envoyes.length > 1 ? 's' : '') + ' envoyé' + (envoyes.length > 1 ? 's' : ''), 'envoye'));
+      cb.appendChild(cp);
+      cb.addEventListener('click', function () {
+        view = { type:null, statut:null, courrier:'all', open:true };
+        render(); scrollToPanel();
+      });
+      m.appendChild(cb);
+    }
   }
 
   function diagTable(d, title, rawKey, labelFn) {
@@ -581,6 +628,7 @@
     var q = norm(query);
     var list = rows.filter(function (r) {
       if (view.type && r.type !== view.type) return false;
+      if (view.courrier && !courrierMatch(r)) return false;
       if (view.statut && r.statut !== view.statut) return false;
       if (q) {
         var hay = norm([moduleLabel(r.type), 'dossier ' + r.id].concat(ALL.map(function (k) { return r.f[k]; })).join(' '));
@@ -606,8 +654,8 @@
     host.innerHTML = '';
     if (!view.open) return;
 
-    var scope = rows.filter(function (r) { return !view.type || r.type === view.type; });
-    var title = view.type ? moduleLabel(view.type) : 'Toutes les demandes';
+    var scope = rows.filter(function (r) { return (!view.type || r.type === view.type) && (!view.courrier || courrierState(r) !== -1); });
+    var title = view.courrier ? 'Suivi courriers de refus' : (view.type ? moduleLabel(view.type) : 'Toutes les demandes');
 
     var panel = h('section', 'panel');
     var head = h('div', 'panel-head');
@@ -631,16 +679,28 @@
     panel.appendChild(head);
 
     var chips = h('div', 'chips');
-    var all = h('button', 'chip' + (!view.statut ? ' active' : ''), 'Tous');
-    all.appendChild(h('b', null, String(scope.length)));
-    all.addEventListener('click', function () { view.statut = null; render(); });
-    chips.appendChild(all);
-    STATUTS.forEach(function (s) {
-      var c = h('button', 'chip ' + s.key + (view.statut === s.key ? ' active' : ''), s.label);
-      c.appendChild(h('b', null, String(count(scope, s.key))));
-      c.addEventListener('click', function () { view.statut = s.key; render(); });
-      chips.appendChild(c);
-    });
+    if (view.courrier) {
+      var nA = scope.filter(function (r) { return courrierState(r) === 1; }).length;
+      var nE = scope.filter(function (r) { return courrierState(r) === 0; }).length;
+      [['all', 'Tous', '', scope.length], ['afaire', 'Courriers à faire', '', nA], ['envoye', 'Courriers envoyés', ' t', nE]].forEach(function (d) {
+        var c = h('button', 'chip' + d[2] + (view.courrier === d[0] ? ' active' : ''), d[1]);
+        c.appendChild(h('b', null, String(d[3])));
+        c.addEventListener('click', function () { view.courrier = d[0]; render(); });
+        chips.appendChild(c);
+      });
+    } else {
+      var all = h('button', 'chip' + (!view.statut ? ' active' : ''), 'Tous');
+      all.appendChild(h('b', null, String(scope.length)));
+      all.addEventListener('click', function () { view.statut = null; render(); });
+      chips.appendChild(all);
+      STATUTS.forEach(function (s) {
+        var c = h('button', 'chip ' + s.key + (view.statut === s.key ? ' active' : ''), s.label);
+        c.appendChild(h('b', null, String(count(scope, s.key))));
+        c.addEventListener('click', function () { view.statut = s.key; render(); });
+        chips.appendChild(c);
+      });
+
+    }
     panel.appendChild(chips);
 
     var list = filtered();
