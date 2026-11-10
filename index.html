@@ -90,6 +90,13 @@
   .panel-head h2 { margin:0; font-size:22px; color:var(--sky-900); }
   .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   .tools select, .btn { border:1px solid var(--line); background:var(--white); border-radius:10px; padding:7px 12px; font:inherit; color:var(--sky-900); }
+  .fields.etab-fields { display:block; }
+  .erow { display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; margin-top:12px; }
+  .erow:first-child { margin-top:0; }
+  .erow.one { grid-template-columns:1fr; }
+  @media (max-width:520px) { .erow { grid-template-columns:1fr; } }
+  .ro-box { white-space:pre-wrap; background:#fff; border:1px solid var(--line); border-radius:10px; padding:9px 13px; margin-top:3px; font-weight:400; }
+  .ro-hint { font-weight:400; font-size:12px; color:var(--muted); margin-left:6px; }
   .etab-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin:14px 0 4px; }
   .etab-tile { text-align:left; border:1px solid var(--line); background:#fff; border-radius:14px; padding:11px 14px; cursor:pointer; color:var(--sky-900); transition:background .15s, box-shadow .15s; }
   .etab-tile:hover { background:var(--sky-50); }
@@ -164,7 +171,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v15 (10/11/2026) · sous-modules par établissement d'accueil</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v16 (10/11/2026) · dossier du module Réponse établissement réorganisé</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -452,6 +459,41 @@
     var st = courrierState(r);
     if (view.courrier === 'all') return st !== '';
     return st === view.courrier;
+  }
+  // Dossier affiché dans le module « Réponse établissement d'accueil » (ordre imposé, avis du médecin en lecture seule)
+  function buildEtabFields(r, grid) {
+    function fld(title, value, cls) {
+      var box = h('div', 'fld' + (cls ? ' ' + cls : ''));
+      box.appendChild(h('dt', null, title));
+      var dd = h('dd');
+      if (value) highlight(dd, value); else { dd.textContent = '—'; dd.className = 'none'; }
+      box.appendChild(dd);
+      return box;
+    }
+    // Ligne 1 : Bac + Académie d'origine
+    var row1 = h('div', 'erow');
+    if (mapping.Bac) row1.appendChild(fld('Bac', r.f.Bac));
+    if (mapping.Academie) row1.appendChild(fld('Académie d\'origine', r.f.Academie));
+    if (row1.childNodes.length) grid.appendChild(row1);
+
+    // Ligne 2 : Avis du médecin ou Expertise de la Maison de la performance (selon le type de saisine), lecture seule
+    var avisTxt = mapping.AvisMedecin ? r.avisMed : ((notes['avis_' + r.id] || {}).t || '');
+    var row2 = h('div', 'erow one');
+    var box2 = h('div', 'fld');
+    var dt2 = h('dt', null, r.type === 'sport' ? SHN_AVIS_TITLE : 'Avis du médecin');
+    dt2.appendChild(h('span', 'ro-hint', 'lecture seule'));
+    box2.appendChild(dt2);
+    var dd2 = h('dd', 'ro-box');
+    if (avisTxt) highlight(dd2, avisTxt); else { dd2.textContent = '—'; dd2.className = 'ro-box none'; }
+    box2.appendChild(dd2);
+    row2.appendChild(box2);
+    grid.appendChild(row2);
+
+    // Ligne 3 : Formation demandée (fond jaune pastel) + Admission Parcoursup actuelle
+    var row3 = h('div', 'erow');
+    if (mapping.Formation) row3.appendChild(fld('Formation demandée par le candidat', r.f.Formation, 'hl'));
+    if (mapping.AdmissionPS) row3.appendChild(fld('Admission Parcoursup actuelle', r.f.AdmissionPS));
+    if (row3.childNodes.length) grid.appendChild(row3);
   }
   function fullName(r) { return (r.f.Nom + ' ' + r.f.Prenom).trim(); }
   function candTitle(r) { return fullName(r) || ('Dossier n° ' + (r.f.Numero || r.id)); }
@@ -862,8 +904,8 @@
       top.appendChild(actions);
       card.appendChild(top);
 
-      var grid = h('dl', 'fields');
-      FIELDS.forEach(function (f) {
+      var grid = h('dl', 'fields' + (view.etab ? ' etab-fields' : ''));
+      if (view.etab) buildEtabFields(r, grid); else FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         if (f.hl) return;                 // affiché sur la ligne du numéro de dossier
         if (f.onlyType && r.type !== f.onlyType) return;
