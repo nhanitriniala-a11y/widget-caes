@@ -90,6 +90,13 @@
   .panel-head h2 { margin:0; font-size:22px; color:var(--sky-900); }
   .tools { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
   .tools select, .btn { border:1px solid var(--line); background:var(--white); border-radius:10px; padding:7px 12px; font:inherit; color:var(--sky-900); }
+  .etab-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin:14px 0 4px; }
+  .etab-tile { text-align:left; border:1px solid var(--line); background:#fff; border-radius:14px; padding:11px 14px; cursor:pointer; color:var(--sky-900); transition:background .15s, box-shadow .15s; }
+  .etab-tile:hover { background:var(--sky-50); }
+  .etab-tile.active { background:#2b7a8c; border-color:#2b7a8c; color:#fff; box-shadow:0 6px 16px rgba(43,122,140,.28); }
+  .etab-tile .tl { display:block; font-weight:700; font-size:14px; }
+  .etab-tile .tn { display:block; font-size:26px; font-weight:800; line-height:1.2; }
+  .etab-tile .ts { display:block; font-size:12px; opacity:.85; }
   .chips { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 6px; }
   .chip { border:1px solid var(--line); background:var(--sky-50); border-radius:999px; padding:6px 15px; font-weight:600; color:var(--sky-900); }
   .chip b { margin-left:6px; opacity:.8; }
@@ -157,7 +164,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v14 (10/11/2026) · module Réponse établissement allégé</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v15 (10/11/2026) · sous-modules par établissement d'accueil</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -199,7 +206,7 @@
 
   // Champs affichés pour chaque candidat (dans cet ordre)
   var FIELDS = [
-    { name:'EtabAccueil',   title:'Établissement à qui envoyer le dossier', onlyView:'etab', wide:true },
+    { name:'EtabAccueil',   title:'Établissement à qui envoyer le dossier', hidden:true },
     { name:'AdmissionPS',   title:'Admission Parcoursup actuelle',          onlyView:'etab', wide:true },
     { name:'Bac',           title:'Bac' },
     { name:'Academie',      title:'Académie d\'origine' },
@@ -418,10 +425,27 @@
     if (!r.f.EtabAccueil) return '';
     return r.avisEtab.trim() ? 'recu' : 'attente';
   }
+  // Sous-modules : classés d'après la valeur de la colonne « Établissement à qui envoyer le dossier »
+  var ETAB_GROUPS = [
+    { key:'bordeaux',  label:'Université de Bordeaux' },
+    { key:'montaigne', label:'Université Bordeaux Montaigne' },
+    { key:'pau',       label:'Université de Pau' },
+    { key:'autres',    label:'Autres' }
+  ];
+  function etabGroup(r) {
+    var n = norm(r.f.EtabAccueil);
+    if (!n) return '';
+    if (n.indexOf('montaigne') !== -1) return 'montaigne';
+    if (/^(universite|univ\.?|u\.?)\s*(de\s+|d')?\s*bordeaux$/.test(n) || n === 'bordeaux' || n.indexOf('universite de bordeaux') === 0 || n.indexOf('universite bordeaux') === 0) return 'bordeaux';
+    if (/\bpau\b/.test(n) && (n.indexOf('universite') !== -1 || n.indexOf('univ') !== -1 || n === 'pau' || n.indexOf('uppa') !== -1)) return 'pau';
+    if (n === 'uppa') return 'pau';
+    return 'autres';
+  }
   function etabMatch(r) {
     var st = etabState(r);
-    if (view.etab === 'all') return st !== '';
-    return st === view.etab;
+    if (st === '') return false;
+    if (view.etabGroup && etabGroup(r) !== view.etabGroup) return false;
+    return view.etab === 'all' ? true : st === view.etab;
   }
   // view.courrier : 'all' (tous les courriers renseignés), 'afaire', 'signature' ou 'envoye'
   function courrierMatch(r) {
@@ -726,8 +750,8 @@
     host.innerHTML = '';
     if (!view.open) return;
 
-    var scope = rows.filter(function (r) { return (!view.type || r.type === view.type) && (!view.courrier || courrierState(r) !== '') && (!view.etab || etabState(r) !== ''); });
-    var title = view.etab ? 'Réponse établissement d’accueil' : view.courrier ? 'Suivi courriers de refus' : (view.type ? moduleLabel(view.type) : 'Toutes les demandes');
+    var scope = rows.filter(function (r) { return (!view.type || r.type === view.type) && (!view.courrier || courrierState(r) !== '') && (!view.etab || (etabState(r) !== '' && (!view.etabGroup || etabGroup(r) === view.etabGroup))); });
+    var title = view.etab ? 'Réponse établissement d’accueil' + (view.etabGroup ? ' — ' + ETAB_GROUPS.filter(function (g) { return g.key === view.etabGroup; })[0].label : '') : view.courrier ? 'Suivi courriers de refus' : (view.type ? moduleLabel(view.type) : 'Toutes les demandes');
 
     var panel = h('section', 'panel');
     var head = h('div', 'panel-head');
@@ -781,6 +805,22 @@
       });
 
     }
+    if (view.etab) {
+      var tiles = h('div', 'etab-tiles');
+      tiles.setAttribute('role', 'group');
+      tiles.setAttribute('aria-label', 'Établissements d’accueil');
+      ETAB_GROUPS.forEach(function (g) {
+        var inG = rows.filter(function (r) { return etabState(r) !== '' && etabGroup(r) === g.key; });
+        var att = inG.filter(function (r) { return etabState(r) === 'attente'; }).length;
+        var tl = h('button', 'etab-tile' + (view.etabGroup === g.key ? ' active' : ''));
+        tl.appendChild(h('span', 'tl', g.label));
+        tl.appendChild(h('span', 'tn', String(inG.length)));
+        tl.appendChild(h('span', 'ts', att + ' en attente · ' + (inG.length - att) + ' avis reçu' + (inG.length - att > 1 ? 's' : '')));
+        tl.addEventListener('click', function () { view.etabGroup = (view.etabGroup === g.key) ? null : g.key; render(); });
+        tiles.appendChild(tl);
+      });
+      panel.appendChild(tiles);
+    }
     panel.appendChild(chips);
 
     var list = filtered();
@@ -827,6 +867,7 @@
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         if (f.hl) return;                 // affiché sur la ligne du numéro de dossier
         if (f.onlyType && r.type !== f.onlyType) return;
+        if (f.hidden) return;                             // colonne lue pour le tri, jamais affichée dans le dossier
         if (f.hideInView && view[f.hideInView]) return;   // champ masqué dans ce module (ici Réponse établissement)
         if (f.onlyView && !view[f.onlyView]) return;      // champ réservé à un module (ici Réponse établissement)   // champ réservé à un module (ici CAES SHN)
         var box = h('div', 'fld' + (f.wide ? ' wide' : '') + (f.hl ? ' hl' : ''));
