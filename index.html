@@ -109,8 +109,7 @@
   .fld .seg button.on { box-shadow:0 2px 6px rgba(20,82,127,.18); }
   @media (max-width:420px) { .fld .seg button { padding:7px 10px; font-size:13px; } }
   .fld.hl { background:#fff4bf; border-radius:12px; padding:9px 14px; }
-  .shn-row { grid-column:1 / -1; display:grid; grid-template-columns:1fr 1fr; gap:10px 16px; }
-  @media (max-width:420px) { .shn-row { grid-template-columns:1fr; } }
+  .shn-tag { display:inline-block; margin-left:8px; padding:1px 11px; border-radius:999px; background:#fff4bf; color:#3d2f00; font-size:13px; font-weight:400; vertical-align:middle; }
   .ferr { margin-top:4px; font-size:12px; font-weight:600; color:var(--rose-700); }
   .fraw { margin-top:4px; font-size:12px; color:var(--muted); }
   .who { font-weight:700; font-size:16px; }
@@ -156,7 +155,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v11 (10/11/2026) · Sport pratiqué et Statut SHN côte à côte</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v12 (10/11/2026) · Sport et Statut SHN sur la ligne du numéro de dossier</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -738,6 +737,12 @@
       var sub = h('div', 'sub');
       if (r.f.Numero) { sub.appendChild(document.createTextNode('N° ')); highlight(sub, r.f.Numero); sub.appendChild(document.createTextNode(' · ')); }
       sub.appendChild(document.createTextNode(moduleLabel(r.type)));
+      if (r.type === 'sport') {
+        FIELDS.forEach(function (f) {
+          if (!f.hl || !mapping[f.name]) return;
+          sub.appendChild(h('span', 'shn-tag', f.title + ' : ' + (r.f[f.name] || '—')));
+        });
+      }
       who.appendChild(sub);
       top.appendChild(who);
 
@@ -755,9 +760,9 @@
       card.appendChild(top);
 
       var grid = h('dl', 'fields');
-      var shnRow = null;     // ligne qui réunit « Sport pratiqué » et « Statut SHN » côte à côte
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
+        if (f.hl) return;                 // affiché sur la ligne du numéro de dossier
         if (f.onlyType && r.type !== f.onlyType) return;   // champ réservé à un module (ici CAES SHN)
         var box = h('div', 'fld' + (f.wide ? ' wide' : '') + (f.hl ? ' hl' : ''));
         box.appendChild(h('dt', null, f.title));
@@ -781,10 +786,7 @@
           dd.appendChild(errBox);
         } else if (r.f[f.name]) highlight(dd, r.f[f.name]); else { dd.textContent = '—'; dd.className = 'none'; }
         box.appendChild(dd);
-        if (f.hl) {
-          if (!shnRow) { shnRow = h('div', 'shn-row'); grid.appendChild(shnRow); }
-          shnRow.appendChild(box);
-        } else grid.appendChild(box);
+        grid.appendChild(box);
       });
       if (grid.childNodes.length) card.appendChild(grid);
 
