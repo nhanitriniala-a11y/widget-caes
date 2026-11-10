@@ -104,7 +104,13 @@
   .fld dt { font-size:12px; font-weight:700; color:var(--sky-800); }
   .fld dd { margin:1px 0 0; overflow-wrap:anywhere; white-space:pre-wrap; }
   .fld dd.none { color:var(--muted); }
-  .fld .seg { margin-top:3px; }
+  .fld .seg { margin-top:4px; display:flex; width:max-content; max-width:100%; padding:4px; gap:4px; border-radius:999px; background:var(--sky-100); border:1px solid var(--line); }
+  .fld .seg button { white-space:nowrap; padding:7px 18px; border-radius:999px; font-size:14px; font-weight:600; transition:background .15s, color .15s, box-shadow .15s; }
+  .fld .seg button.on { box-shadow:0 2px 6px rgba(20,82,127,.18); }
+  @media (max-width:420px) { .fld .seg button { padding:7px 10px; font-size:13px; } }
+  .fld.hl { background:#fff4bf; border-radius:12px; padding:9px 14px; }
+  .fld.hl dt { color:#6b5200; font-weight:800; }
+  .fld.hl dd { font-weight:800; color:#3d2f00; }
   .ferr { margin-top:4px; font-size:12px; font-weight:600; color:var(--rose-700); }
   .fraw { margin-top:4px; font-size:12px; color:var(--muted); }
   .who { font-weight:700; font-size:16px; }
@@ -150,7 +156,7 @@
 <header class="hero">
   <h1>CAES 2027</h1>
   <p>Suivi des demandes par type de saisine</p>
-  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v9 (10/11/2026) · champs Sport pratiqué et Statut SHN</p>
+  <p style="margin:-14px 0 18px;font-size:12px;opacity:.75">Version du widget : v10 (10/11/2026) · boutons sur une ligne, champs SHN en évidence</p>
   <div class="search" id="searchBox">
     <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
     <input id="q" type="search" placeholder="Rechercher un dossier, un nom, un type…" aria-label="Rechercher un dossier" autocomplete="off">
@@ -196,13 +202,13 @@
     { name:'Academie',      title:'Académie d\'origine' },
     { name:'Justificatifs', title:'Justificatifs reçus', kind:'choice',
       opts:[ { label:'Oui', cls:'t', yes:true }, { label:'Non', cls:'c', yes:false } ] },
+    { name:'SportPratique', title:'Sport pratiqué', onlyType:'sport', hl:true },
+    { name:'StatutSHN',     title:'Statut SHN',     onlyType:'sport', hl:true },
     { name:'Observation',   title:'Observation',                        wide:true },
     { name:'Formation',     title:'Formation demandée par le candidat', wide:true },
     { name:'Proposition',   title:'Proposition faite par la CAES',      wide:true },
     { name:'Situation',     title:'Situation finale',                   wide:true },
-    { name:'SportPratique', title:'Sport pratiqué', onlyType:'sport' },
-    { name:'StatutSHN',     title:'Statut SHN',     onlyType:'sport' },
-    { name:'CourrierRefus', title:'Courrier de refus', kind:'choice',
+    { name:'CourrierRefus', title:'Courrier de refus', kind:'choice', wide:true,
       opts:[ { label:'À faire', cls:'a', key:'afaire' }, { label:'À la signature', cls:'s', key:'signature' }, { label:'Envoyé', cls:'t', key:'envoye' } ] }
   ];
   var IDENT = ['Numero', 'Nom', 'Prenom'];
@@ -752,7 +758,7 @@
       FIELDS.forEach(function (f) {
         if (!mapping[f.name]) return;     // colonne non associée : on ne l'affiche pas
         if (f.onlyType && r.type !== f.onlyType) return;   // champ réservé à un module (ici CAES SHN)
-        var box = h('div', 'fld' + (f.wide ? ' wide' : ''));
+        var box = h('div', 'fld' + (f.wide ? ' wide' : '') + (f.hl ? ' hl' : ''));
         box.appendChild(h('dt', null, f.title));
         var dd = h('dd');
         if (f.kind === 'choice') {
